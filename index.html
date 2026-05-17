@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MindForge — Visual Mind Map Editor</title>
+<link rel="canonical" href="https://mindforge-map.surge.sh/">
+<meta name="description" content="Browser-based mind map and knowledge graph editor. Create nodes, connect ideas, auto-layout, export as PNG.">
+<meta name="keywords" content="mind map, knowledge graph, brainstorming, visual thinking, diagram editor">
+<meta property="og:title" content="MindForge — Visual Mind Map Editor">
+<meta property="og:description" content="Create beautiful mind maps in your browser.">
+<meta property="og:url" content="https://mindforge-map.surge.sh/">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#1a1a2e;--panel:rgba(22,22,40,0.95);--border:#2a2a4a;--text:#e0e0f0;--dim:#7a7a9a;--accent:#6c5ce7;--accent2:#a29bfe;--green:#00cec9;--red:#ff6b6b;--orange:#fdcb6e;--radius:8px}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;overflow:hidden;height:100vh}
+canvas{display:block;position:absolute;top:0;left:0}
+#toolbar{position:fixed;top:0;left:0;right:0;height:48px;background:var(--panel);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 16px;gap:8px;z-index:10}
+#toolbar h1{font-size:16px;font-weight:700;background:linear-gradient(135deg,var(--accent),var(--green));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-right:12px}
+.tb{padding:6px 14px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);font-size:12px;cursor:pointer;transition:all .15s;white-space:nowrap}
+.tb:hover{background:rgba(255,255,255,0.08);border-color:var(--accent)}
+.tb.active{background:rgba(108,92,231,0.15);border-color:var(--accent);color:var(--accent2)}
+.tb.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.tb.primary:hover{opacity:.85}
+.sep{width:1px;height:28px;background:var(--border)}
+#node-edit{position:fixed;display:none;background:var(--panel);border:1px solid var(--accent);border-radius:var(--radius);padding:12px;z-index:20;min-width:240px;box-shadow:0 8px 32px rgba(0,0,0,0.4)}
+#node-edit textarea{width:100%;min-height:60px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:8px;font-size:13px;resize:vertical;font-family:inherit;outline:none}
+#node-edit textarea:focus{border-color:var(--accent)}
+#node-edit .edit-actions{display:flex;gap:6px;margin-top:8px}
+#node-edit .edit-actions button{flex:1}
+#ctx-menu{position:fixed;display:none;background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:4px;z-index:20;min-width:160px;box-shadow:0 8px 32px rgba(0,0,0,0.4)}
+#ctx-menu div{padding:8px 12px;font-size:12px;cursor:pointer;border-radius:4px;transition:background .1s}
+#ctx-menu div:hover{background:rgba(255,255,255,0.08)}
+#ctx-menu div.red{color:var(--red)}
+#status{position:fixed;bottom:12px;left:16px;font-size:11px;color:var(--dim);z-index:5}
+#help-hint{position:fixed;bottom:12px;right:16px;font-size:11px;color:var(--dim);z-index:5}
+.color-dot{width:20px;height:20px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:all .15s}
+.color-dot:hover,.color-dot.active{border-color:#fff;transform:scale(1.1)}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="toolbar">
+  <h1>MindForge</h1>
+  <button class="tb primary" id="btn-add">+ Add Node</button>
+  <button class="tb" id="btn-link">🔗 Link Mode</button>
+  <div class="sep"></div>
+  <button class="tb" id="btn-layout">⚡ Auto Layout</button>
+  <button class="tb" id="btn-center">◎ Center</button>
+  <div class="sep"></div>
+  <div style="display:flex;gap:4px;align-items:center">
+    <span style="font-size:11px;color:var(--dim)">Color:</span>
+    <div class="color-dot active" data-color="#6c5ce7" style="background:#6c5ce7"></div>
+    <div class="color-dot" data-color="#00cec9" style="background:#00cec9"></div>
+    <div class="color-dot" data-color="#ff6b6b" style="background:#ff6b6b"></div>
+    <div class="color-dot" data-color="#fdcb6e" style="background:#fdcb6e"></div>
+    <div class="color-dot" data-color="#a29bfe" style="background:#a29bfe"></div>
+    <div class="color-dot" data-color="#55efc4" style="background:#55efc4"></div>
+    <div class="color-dot" data-color="#e17055" style="background:#e17055"></div>
+  </div>
+  <div class="sep"></div>
+  <button class="tb" id="btn-export">📷 Export PNG</button>
+  <button class="tb" id="btn-clear">🗑 Clear</button>
+</div>
+
+<div id="node-edit">
+  <textarea id="edit-text" placeholder="Enter text..."></textarea>
+  <div class="edit-actions">
+    <button class="tb primary" id="edit-save">Save</button>
+    <button class="tb" id="edit-cancel">Cancel</button>
+  </div>
+</div>
+
+<div id="ctx-menu">
+  <div id="ctx-edit">✏️ Edit</div>
+  <div id="ctx-color">🎨 Change Color</div>
+  <div id="ctx-delete" class="red">🗑 Delete</div>
+</div>
+
+<div id="status">Nodes: 0 | Links: 0</div>
+<div id="help-hint">Double-click canvas to add · Double-click node to edit · Drag to move · Scroll to zoom</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, dpr;
+
+function resize(){
+  dpr = Math.min(devicePixelRatio, 2);
+  W = innerWidth; H = innerHeight;
+  canvas.width = W*dpr; canvas.height = H*dpr;
+  canvas.style.width = W+'px'; canvas.style.height = H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  draw();
+}
+addEventListener('resize', resize);
+
+/* ===================== State ===================== */
+let nodes = [], links = [];
+let nodeIdCounter = 0;
+let currentColor = '#6c5ce7';
+let linkMode = false, linkSource = null;
+
+// View transform
+let viewX = 0, viewY = 0, viewScale = 1;
+
+// Drag state
+let dragging = null, dragOffX = 0, dragOffY = 0;
+let panning = false, panStartX = 0, panStartY = 0, panViewX = 0, panViewY = 0;
+let selectedNode = null, ctxNode = null;
+
+function screenToWorld(sx, sy){
+  return [(sx - viewX)/viewScale, (sy - viewY)/viewScale];
+}
+
+function worldToScreen(wx, wy){
+  return [wx*viewScale + viewX, wy*viewScale + viewY];
+}
+
+/* ===================== Node / Link ===================== */
+function createNode(x, y, text, color){
+  const id = ++nodeIdCounter;
+  const node = {id, x, y, text: text||'Node '+id, color: color||currentColor, w:0, h:0, vx:0, vy:0};
+  measureNode(node);
+  nodes.push(node);
+  updateStatus();
+  return node;
+}
+
+function measureNode(n){
+  ctx.font = '14px "Segoe UI", system-ui, sans-serif';
+  const lines = n.text.split('\n');
+  let maxW = 0;
+  lines.forEach(l=>{const m=ctx.measureText(l);if(m.width>maxW)maxW=m.width;});
+  n.w = Math.max(120, maxW + 32);
+  n.h = Math.max(40, lines.length * 20 + 24);
+}
+
+function addLink(from, to){
+  if(from===to) return;
+  if(links.some(l=>(l.from===from&&l.to===to)||(l.from===to&&l.to===from))) return;
+  links.push({from, to});
+  updateStatus();
+}
+
+function deleteNode(node){
+  nodes = nodes.filter(n=>n!==node);
+  links = links.filter(l=>l.from!==node&&l.to!==node);
+  if(selectedNode===node) selectedNode=null;
+  updateStatus();
+}
+
+function findNodeAt(wx, wy){
+  for(let i=nodes.length-1;i>=0;i--){
+    const n=nodes[i];
+    if(wx>=n.x-n.w/2&&wx<=n.x+n.w/2&&wy>=n.y-n.h/2&&wy<=n.y+n.h/2) return n;
+  }
+  return null;
+}
+
+function updateStatus(){
+  document.getElementById('status').textContent=`Nodes: ${nodes.length} | Links: ${links.length}`;
+}
+
+/* ===================== Drawing ===================== */
+function draw(){
+  ctx.save();
+  ctx.clearRect(0,0,W,H);
+
+  // Background grid
+  drawGrid();
+
+  ctx.translate(viewX, viewY);
+  ctx.scale(viewScale, viewScale);
+
+  // Draw links
+  links.forEach(l=>{
+    const a=l.from, b=l.to;
+    if(!a||!b)return;
+    const dx=b.x-a.x, dy=b.y-a.y;
+    const dist=Math.sqrt(dx*dx+dy*dy);
+    const cx1=a.x+dx*0.3, cy1=a.y;
+    const cx2=a.x+dx*0.7, cy2=b.y;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.bezierCurveTo(cx1, cy1, cx2, cy2, b.x, b.y);
+    ctx.strokeStyle = 'rgba(108,92,231,0.4)';
+    ctx.lineWidth = 2/viewScale;
+    ctx.stroke();
+
+    // Arrow
+    const angle = Math.atan2(b.y-cy2, b.x-cx2);
+    const arrowLen = 8/viewScale;
+    const ax = b.x - Math.cos(angle)*b.w/2*0.9;
+    const ay = b.y - Math.sin(angle)*b.h/2*0.5;
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(ax-arrowLen*Math.cos(angle-0.3), ay-arrowLen*Math.sin(angle-0.3));
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(ax-arrowLen*Math.cos(angle+0.3), ay-arrowLen*Math.sin(angle+0.3));
+    ctx.strokeStyle = 'rgba(108,92,231,0.6)';
+    ctx.lineWidth = 2/viewScale;
+    ctx.stroke();
+  });
+
+  // Link preview
+  if(linkMode && linkSource){
+    const [mx,my]=screenToWorld(mouseX, mouseY);
+    ctx.beginPath();
+    ctx.setLineDash([6/viewScale, 4/viewScale]);
+    ctx.moveTo(linkSource.x, linkSource.y);
+    ctx.lineTo(mx, my);
+    ctx.strokeStyle = 'rgba(0,206,201,0.6)';
+    ctx.lineWidth = 2/viewScale;
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Draw nodes
+  nodes.forEach(n=>{
+    const isSelected = n===selectedNode;
+    const x=n.x-n.w/2, y=n.y-n.h/2, w=n.w, h=n.h, r=8;
+
+    // Shadow
+    ctx.shadowColor = 'rgba(0,0,0,0.3)';
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetY = 4;
+
+    // Body
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, r);
+    ctx.fillStyle = '#1e1e32';
+    ctx.fill();
+
+    ctx.shadowColor = 'transparent';
+
+    // Border
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, r);
+    ctx.strokeStyle = isSelected ? '#fff' : n.color;
+    ctx.lineWidth = isSelected ? 2.5/viewScale : 1.5/viewScale;
+    ctx.stroke();
+
+    // Top color bar
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, 4, [r, r, 0, 0]);
+    ctx.fillStyle = n.color;
+    ctx.fill();
+
+    // Text
+    ctx.fillStyle = '#e0e0f0';
+    ctx.font = '14px "Segoe UI", system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const lines = n.text.split('\n');
+    const lineH = 20;
+    const startY = n.y - (lines.length-1)*lineH/2 + 2;
+    lines.forEach((l,i)=>{
+      ctx.fillText(l, n.x, startY+i*lineH, w-20);
+    });
+
+    // Link mode indicator
+    if(linkMode && n===linkSource){
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, Math.max(w,h)/2+8, 0, Math.PI*2);
+      ctx.strokeStyle = 'rgba(0,206,201,0.5)';
+      ctx.lineWidth = 2/viewScale;
+      ctx.setLineDash([4/viewScale, 4/viewScale]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  });
+
+  ctx.restore();
+}
+
+function drawGrid(){
+  const gridSize = 40 * viewScale;
+  const offX = viewX % gridSize;
+  const offY = viewY % gridSize;
+  ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+  ctx.lineWidth = 1;
+  for(let x = offX; x < W; x += gridSize){
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  for(let y = offY; y < H; y += gridSize){
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+}
+
+/* ===================== Interaction ===================== */
+let mouseX=0, mouseY=0;
+
+canvas.addEventListener('mousedown', e=>{
+  hideCtxMenu();
+  const [wx, wy] = screenToWorld(e.clientX, e.clientY);
+  const node = findNodeAt(wx, wy);
+
+  if(e.button === 2){
+    if(node){
+      ctxNode = node;
+      showCtxMenu(e.clientX, e.clientY);
+    }
+    return;
+  }
+
+  if(linkMode){
+    if(node){
+      if(!linkSource){
+        linkSource = node;
+      } else {
+        addLink(linkSource, node);
+        linkSource = null;
+      }
+    }
+    draw();
+    return;
+  }
+
+  if(node){
+    dragging = node;
+    dragOffX = wx - node.x;
+    dragOffY = wy - node.y;
+    selectedNode = node;
+    // Move to front
+    nodes = nodes.filter(n=>n!==node);
+    nodes.push(node);
+  } else {
+    selectedNode = null;
+    panning = true;
+    panStartX = e.clientX;
+    panStartY = e.clientY;
+    panViewX = viewX;
+    panViewY = viewY;
+  }
+  draw();
+});
+
+canvas.addEventListener('mousemove', e=>{
+  mouseX = e.clientX; mouseY = e.clientY;
+  if(dragging){
+    const [wx, wy] = screenToWorld(e.clientX, e.clientY);
+    dragging.x = wx - dragOffX;
+    dragging.y = wy - dragOffY;
+    draw();
+  }
+  if(panning){
+    viewX = panViewX + (e.clientX - panStartX);
+    viewY = panViewY + (e.clientY - panStartY);
+    draw();
+  }
+  if(linkMode && linkSource){
+    draw();
+  }
+});
+
+canvas.addEventListener('mouseup', ()=>{
+  dragging = null;
+  panning = false;
+});
+
+canvas.addEventListener('dblclick', e=>{
+  const [wx, wy] = screenToWorld(e.clientX, e.clientY);
+  const node = findNodeAt(wx, wy);
+  if(node){
+    startEdit(node, e.clientX, e.clientY);
+  } else {
+    const n = createNode(wx, wy, '');
+    startEdit(n, e.clientX, e.clientY);
+  }
+});
+
+canvas.addEventListener('wheel', e=>{
+  const factor = e.deltaY > 0 ? 0.9 : 1.1;
+  const newScale = Math.max(0.1, Math.min(5, viewScale * factor));
+  const mx = e.clientX, my = e.clientY;
+  viewX = mx - (mx - viewX) * (newScale / viewScale);
+  viewY = my - (my - viewY) * (newScale / viewScale);
+  viewScale = newScale;
+  draw();
+  e.preventDefault();
+}, {passive:false});
+
+canvas.addEventListener('contextmenu', e=>e.preventDefault());
+
+// Keyboard
+addEventListener('keydown', e=>{
+  if(e.key==='Delete'&&selectedNode&&!editing){deleteNode(selectedNode);draw();}
+  if(e.key==='Escape'){linkMode=false;linkSource=null;document.getElementById('btn-link').classList.remove('active');draw();}
+});
+
+/* ===================== Node Editing ===================== */
+let editing = false;
+const editPanel = document.getElementById('node-edit');
+const editText = document.getElementById('edit-text');
+
+function startEdit(node, sx, sy){
+  editing = true;
+  editText.value = node.text;
+  editPanel.style.left = Math.min(sx, W-280)+'px';
+  editPanel.style.top = Math.min(sy+10, H-150)+'px';
+  editPanel.style.display = 'block';
+  editText.focus();
+  editText._node = node;
+}
+
+document.getElementById('edit-save').addEventListener('click', saveEdit);
+document.getElementById('edit-cancel').addEventListener('click', ()=>{editPanel.style.display='none';editing=false;});
+editText.addEventListener('keydown', e=>{
+  if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();saveEdit();}
+  if(e.key==='Escape'){editPanel.style.display='none';editing=false;}
+});
+
+function saveEdit(){
+  const node = editText._node;
+  if(!node)return;
+  node.text = editText.value || 'Node '+node.id;
+  measureNode(node);
+  editPanel.style.display='none';
+  editing=false;
+  draw();
+}
+
+/* ===================== Context Menu ===================== */
+const ctxMenu = document.getElementById('ctx-menu');
+function showCtxMenu(x,y){ctxMenu.style.left=x+'px';ctxMenu.style.top=y+'px';ctxMenu.style.display='block';}
+function hideCtxMenu(){ctxMenu.style.display='none';ctxNode=null;}
+
+document.getElementById('ctx-edit').addEventListener('click',()=>{
+  if(ctxNode) startEdit(ctxNode, parseInt(ctxMenu.style.left), parseInt(ctxMenu.style.top));
+  hideCtxMenu();
+});
+document.getElementById('ctx-delete').addEventListener('click',()=>{
+  if(ctxNode){deleteNode(ctxNode);draw();}
+  hideCtxMenu();
+});
+document.getElementById('ctx-color').addEventListener('click',()=>{
+  if(ctxNode){ctxNode.color=currentColor;draw();}
+  hideCtxMenu();
+});
+
+/* ===================== Toolbar ===================== */
+document.getElementById('btn-add').addEventListener('click',()=>{
+  const [wx, wy] = screenToWorld(W/2, H/2);
+  const n = createNode(wx+Math.random()*100-50, wy+Math.random()*100-50);
+  startEdit(n, W/2, H/2);
+});
+
+document.getElementById('btn-link').addEventListener('click',()=>{
+  linkMode=!linkMode;
+  linkSource=null;
+  document.getElementById('btn-link').classList.toggle('active',linkMode);
+  draw();
+});
+
+document.getElementById('btn-center').addEventListener('click',()=>{
+  if(nodes.length===0){viewX=0;viewY=0;viewScale=1;draw();return;}
+  let cx=0,cy=0;
+  nodes.forEach(n=>{cx+=n.x;cy+=n.y;});
+  cx/=nodes.length;cy/=nodes.length;
+  viewScale=1;
+  viewX=W/2-cx*viewScale;
+  viewY=H/2-cy*viewScale;
+  draw();
+});
+
+document.getElementById('btn-clear').addEventListener('click',()=>{
+  if(nodes.length===0)return;
+  nodes=[];links=[];nodeIdCounter=0;selectedNode=null;
+  updateStatus();draw();
+});
+
+document.getElementById('btn-export').addEventListener('click',()=>{
+  // Create export canvas
+  const ec = document.createElement('canvas');
+  const ectx = ec.getContext('2d');
+  if(nodes.length===0)return;
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  nodes.forEach(n=>{minX=Math.min(minX,n.x-n.w/2);minY=Math.min(minY,n.y-n.h/2);maxX=Math.max(maxX,n.x+n.w/2);maxY=Math.max(maxY,n.y+n.h/2);});
+  const pad=60;
+  ec.width=maxX-minX+pad*2;
+  ec.height=maxY-minY+pad*2;
+  ectx.fillStyle='#1a1a2e';
+  ectx.fillRect(0,0,ec.width,ec.height);
+  // Reuse draw logic with offset
+  ectx.translate(-minX+pad, -minY+pad);
+  // Links
+  links.forEach(l=>{
+    const a=l.from,b=l.to;
+    ectx.beginPath();ectx.moveTo(a.x,a.y);ectx.lineTo(b.x,b.y);
+    ectx.strokeStyle='rgba(108,92,231,0.5)';ectx.lineWidth=2;ectx.stroke();
+  });
+  // Nodes
+  nodes.forEach(n=>{
+    const x=n.x-n.w/2,y=n.y-n.h/2;
+    ectx.beginPath();ectx.roundRect(x,y,n.w,n.h,8);ectx.fillStyle='#1e1e32';ectx.fill();
+    ectx.strokeStyle=n.color;ectx.lineWidth=1.5;ectx.stroke();
+    ectx.beginPath();ectx.roundRect(x,y,n.w,4,[8,8,0,0]);ectx.fillStyle=n.color;ectx.fill();
+    ectx.fillStyle='#e0e0f0';ectx.font='14px "Segoe UI",system-ui,sans-serif';ectx.textAlign='center';ectx.textBaseline='middle';
+    const lines=n.text.split('\n'),lineH=20,startY=n.y-(lines.length-1)*lineH/2+2;
+    lines.forEach((l,i)=>ectx.fillText(l,n.x,startY+i*lineH,n.w-20));
+  });
+  const link=document.createElement('a');
+  link.download='mindforge-'+Date.now()+'.png';
+  link.href=ec.toDataURL('image/png');
+  link.click();
+});
+
+// Color dots
+document.querySelectorAll('.color-dot').forEach(d=>{
+  d.addEventListener('click',()=>{
+    document.querySelectorAll('.color-dot').forEach(x=>x.classList.remove('active'));
+    d.classList.add('active');
+    currentColor=d.dataset.color;
+    if(selectedNode){selectedNode.color=currentColor;draw();}
+  });
+});
+
+/* ===================== Auto Layout ===================== */
+document.getElementById('btn-layout').addEventListener('click',()=>{
+  if(nodes.length<2) return;
+  // Force-directed layout
+  const iterations = 200;
+  const repulsion = 5000;
+  const attraction = 0.01;
+  const damping = 0.9;
+
+  nodes.forEach(n=>{n.vx=0;n.vy=0;});
+
+  for(let iter=0;iter<iterations;iter++){
+    // Repulsion between all nodes
+    for(let i=0;i<nodes.length;i++){
+      for(let j=i+1;j<nodes.length;j++){
+        let dx=nodes[j].x-nodes[i].x, dy=nodes[j].y-nodes[i].y;
+        let dist=Math.sqrt(dx*dx+dy*dy);
+        if(dist<1) dist=1;
+        const force=repulsion/(dist*dist);
+        const fx=dx/dist*force, fy=dy/dist*force;
+        nodes[i].vx-=fx;nodes[i].vy-=fy;
+        nodes[j].vx+=fx;nodes[j].vy+=fy;
+      }
+    }
+    // Attraction along links
+    links.forEach(l=>{
+      const dx=l.to.x-l.from.x, dy=l.to.y-l.from.y;
+      const dist=Math.sqrt(dx*dx+dy*dy);
+      const force=dist*attraction;
+      const fx=dx/dist*force, fy=dy/dist*force;
+      l.from.vx+=fx;l.from.vy+=fy;
+      l.to.vx-=fx;l.to.vy-=fy;
+    });
+    // Apply velocity
+    nodes.forEach(n=>{
+      n.vx*=damping;n.vy*=damping;
+      n.x+=n.vx;n.y+=n.vy;
+    });
+  }
+
+  // Center view
+  document.getElementById('btn-center').click();
+  draw();
+});
+
+/* ===================== Touch Support ===================== */
+let lastTouches = [];
+canvas.addEventListener('touchstart', e=>{
+  e.preventDefault();
+  const t = e.touches;
+  if(t.length===1){
+    const [wx,wy]=screenToWorld(t[0].clientX, t[0].clientY);
+    const node=findNodeAt(wx,wy);
+    if(node){dragging=node;dragOffX=wx-node.x;dragOffY=wy-node.y;selectedNode=node;}
+    else{panning=true;panStartX=t[0].clientX;panStartY=t[0].clientY;panViewX=viewX;panViewY=viewY;}
+  }
+  lastTouches = Array.from(t);
+},{passive:false});
+
+canvas.addEventListener('touchmove', e=>{
+  e.preventDefault();
+  const t = e.touches;
+  if(t.length===1){
+    if(dragging){const [wx,wy]=screenToWorld(t[0].clientX,t[0].clientY);dragging.x=wx-dragOffX;dragging.y=wy-dragOffY;draw();}
+    if(panning){viewX=panViewX+(t[0].clientX-panStartX);viewY=panViewY+(t[0].clientY-panStartY);draw();}
+  }
+  if(t.length===2&&lastTouches.length===2){
+    const d0=Math.hypot(lastTouches[0].clientX-lastTouches[1].clientX,lastTouches[0].clientY-lastTouches[1].clientY);
+    const d1=Math.hypot(t[0].clientX-t[1].clientX,t[0].clientY-t[1].clientY);
+    const factor=d1/d0;
+    const cx=(t[0].clientX+t[1].clientX)/2, cy=(t[0].clientY+t[1].clientY)/2;
+    const newScale=Math.max(0.1,Math.min(5,viewScale*factor));
+    viewX=cx-(cx-viewX)*(newScale/viewScale);
+    viewY=cy-(cy-viewY)*(newScale/viewScale);
+    viewScale=newScale;
+    draw();
+  }
+  lastTouches=Array.from(t);
+},{passive:false});
+
+canvas.addEventListener('touchend', e=>{dragging=null;panning=false;lastTouches=Array.from(e.touches);});
+
+/* ===================== Init with example ===================== */
+function initExample(){
+  const center = createNode(0, 0, 'MindForge');
+  center.color = '#6c5ce7';
+  const ideas = [
+    {text:'Brainstorm', dx:-250, dy:-150, color:'#00cec9'},
+    {text:'Plan', dx:250, dy:-150, color:'#fdcb6e'},
+    {text:'Create', dx:-250, dy:150, color:'#ff6b6b'},
+    {text:'Connect', dx:250, dy:150, color:'#a29bfe'},
+    {text:'Ideas', dx:0, dy:-250, color:'#55efc4'},
+    {text:'Visualize', dx:0, dy:250, color:'#e17055'},
+  ];
+  const sub = [
+    {parent:1,text:'Research',dx:-100,dy:-80,color:'#00cec9'},
+    {parent:1,text:'Explore',dx:100,dy:-80,color:'#00cec9'},
+    {parent:2,text:'Timeline',dx:-100,dy:-80,color:'#fdcb6e'},
+    {parent:2,text:'Milestones',dx:100,dy:-80,color:'#fdcb6e'},
+    {parent:3,text:'Design',dx:-100,dy:80,color:'#ff6b6b'},
+    {parent:3,text:'Build',dx:100,dy:80,color:'#ff6b6b'},
+  ];
+
+  const ideaNodes = ideas.map(i=>{
+    const n=createNode(i.dx, i.dy, i.text, i.color);
+    addLink(center, n);
+    return n;
+  });
+
+  sub.forEach(s=>{
+    const n=createNode(ideaNodes[s.parent-1].x+s.dx, ideaNodes[s.parent-1].y+s.dy, s.text, s.color);
+    addLink(ideaNodes[s.parent-1], n);
+  });
+
+  viewX = W/2;
+  viewY = H/2;
+}
+
+initExample();
+resize();
+</script>
+</body>
+</html>
